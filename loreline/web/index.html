@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>loreline</title>
+<style>
+:root{--bg:#fbfaf7;--panel:#ffffff;--ink:#1d1d1f;--muted:#6b6b70;--line:#e7e4dc;--accent:#5b4bdb;--accent-soft:#ecebfd;--hl:#fff4c2;--code:#f6f5f1}
+@media (prefers-color-scheme:dark){:root{--bg:#121214;--panel:#1a1a1d;--ink:#ececef;--muted:#9a9aa3;--line:#2a2a2f;--accent:#9d93ff;--accent-soft:#25234a;--hl:#3a3418;--code:#161618}}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;display:grid;grid-template-rows:auto 1fr;}
+header{display:flex;gap:12px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+.brand{font-weight:700;letter-spacing:-.01em;display:flex;align-items:center;gap:8px}
+.brand i{width:10px;height:10px;border-radius:50%;background:var(--accent);display:inline-block;box-shadow:0 0 0 4px var(--accent-soft)}
+#ask{flex:1;max-width:640px;display:flex;gap:6px}
+input{font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 10px;width:100%}
+input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+button{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:8px;padding:6px 12px;cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.meta{color:var(--muted);font-size:12px;margin-left:auto;white-space:nowrap}
+main{display:grid;grid-template-columns:260px 1fr 420px;min-height:0}
+aside,section{min-height:0;overflow:auto}
+#side{border-right:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column}
+#side .filter{padding:10px;position:sticky;top:0;background:var(--panel)}
+#tree{padding:0 6px 16px}
+.f{padding:3px 8px;border-radius:6px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px}
+.f:hover{background:var(--accent-soft)}.f.on{background:var(--accent);color:#fff}
+.f .d{color:var(--muted)}.f.on .d{color:#ddd}
+#code{background:var(--code);font:12.5px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+#code table{border-collapse:collapse;width:100%}
+#code td{padding:0 12px;vertical-align:top;white-space:pre}
+#code td.n{color:var(--muted);text-align:right;user-select:none;width:1%;padding-left:16px;border-right:1px solid var(--line)}
+#code tr{cursor:pointer}#code tr:hover td{background:var(--accent-soft)}#code tr.on td{background:var(--hl)}
+#why{border-left:1px solid var(--line);background:var(--panel);padding:18px}
+.empty{color:var(--muted);padding:40px 24px;text-align:center}
+.card{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin:10px 0;background:var(--bg)}
+.tag{display:inline-block;font-size:11px;font-weight:600;padding:1px 7px;border-radius:999px;background:var(--accent-soft);color:var(--accent);margin-right:6px}
+.sha{font-family:ui-monospace,monospace;color:var(--muted);font-size:12px}
+.narr{background:var(--accent-soft);border-radius:10px;padding:12px 14px;white-space:pre-wrap}
+h3{margin:4px 0 2px;font-size:14px}h4{margin:14px 0 4px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.body{white-space:pre-wrap;color:var(--muted);font-size:13px;max-height:180px;overflow:auto;margin-top:6px}
+.quote{border-left:3px solid var(--line);padding-left:8px;margin:6px 0;font-size:13px}
+.src{font-size:13px;margin:6px 0}.src b{color:var(--accent)}
+a{color:var(--accent)}
+.codeline{font:12px ui-monospace,monospace;background:var(--code);padding:6px 8px;border-radius:6px;white-space:pre-wrap;word-break:break-all}
+@media (max-width:900px){main{grid-template-columns:1fr}#side{max-height:30vh}#why{border-left:0;border-top:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><i></i>loreline</div>
+  <form id="ask"><input id="q" placeholder="Ask the history… e.g. why do we retry uploads?" autocomplete="off"><button class="primary">Ask</button></form>
+  <div class="meta" id="meta"></div>
+</header>
+<main>
+  <aside id="side"><div class="filter"><input id="filter" placeholder="Filter files…"></div><div id="tree"></div></aside>
+  <section id="code"><div class="empty">Pick a file, then click any line to see why it exists.</div></section>
+  <aside id="why"><div class="empty">git blame tells you <b>who</b>.<br>loreline tells you <b>why</b>.</div></aside>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const api=async(p)=>{const r=await fetch(p);const j=await r.json();if(!r.ok)throw new Error(j.error||r.statusText);return j};
+let files=[],cur=null;
+async function init(){
+  const info=await api("/api/info");document.title=info.name+" · loreline";
+  $("#meta").textContent=`${info.name} · ${info.stats.commits} commits · ${info.stats.prs} PRs · ${info.llm?("LLM: "+info.llm):"no LLM (evidence only)"}`;
+  files=await api("/api/files");renderTree();
+  const h=new URLSearchParams(location.hash.slice(1));if(h.get("path"))openFile(h.get("path"),+h.get("line")||null);
+}
+function renderTree(){
+  const f=$("#filter").value.toLowerCase();
+  $("#tree").innerHTML=files.filter(p=>p.toLowerCase().includes(f)).slice(0,3000).map(p=>{
+    const i=p.lastIndexOf("/");return `<div class="f${p===cur?" on":""}" data-p="${esc(p)}" title="${esc(p)}"><span class="d">${esc(p.slice(0,i+1))}</span>${esc(p.slice(i+1))}</div>`}).join("");
+}
+$("#filter").oninput=renderTree;
+$("#tree").onclick=e=>{const el=e.target.closest(".f");if(el)openFile(el.dataset.p)};
+async function openFile(p,line){
+  cur=p;renderTree();$("#code").innerHTML='<div class="empty">Loading…</div>';
+  try{const d=await api("/api/file?path="+encodeURIComponent(p));
+    $("#code").innerHTML="<table>"+d.lines.map((l,i)=>`<tr data-l="${i+1}"><td class="n">${i+1}</td><td>${esc(l)||" "}</td></tr>`).join("")+"</table>";
+    whyFile(p);if(line)pick(line,true);
+  }catch(e){$("#code").innerHTML=`<div class="empty">${esc(e.message)}</div>`}
+}
+$("#code").onclick=e=>{const tr=e.target.closest("tr");if(tr)pick(+tr.dataset.l)};
+function pick(n,scroll){
+  document.querySelectorAll("#code tr.on").forEach(t=>t.classList.remove("on"));
+  const tr=document.querySelector(`#code tr[data-l="${n}"]`);if(!tr)return;tr.classList.add("on");if(scroll)tr.scrollIntoView({block:"center"});
+  history.replaceState(null,"","#path="+encodeURIComponent(cur)+"&line="+n);why(cur,n);
+}
+async function whyFile(p){$("#why").innerHTML='<div class="empty">Reading history…</div>';
+  try{const d=await api("/api/why?llm=0&path="+encodeURIComponent(p));showWhy(d,true)}catch(e){$("#why").innerHTML=`<div class="empty">${esc(e.message)}</div>`}}
+let seq=0;
+async function why(p,n){const my=++seq;$("#why").innerHTML='<div class="empty">Digging through history…</div>';
+  try{const d=await api(`/api/why?path=${encodeURIComponent(p)}&line=${n}`);if(my===seq)showWhy(d,false)}catch(e){$("#why").innerHTML=`<div class="empty">${esc(e.message)}</div>`}}
+function showWhy(d,fileOnly){
+  const ev=d.evidence,t=ev.target,f=ev.file;let h="";
+  h+=`<div class="sha">${esc(t.path)}${t.line?":"+t.line:""}</div>`;
+  if(t.text)h+=`<div class="codeline">${esc(t.text)}</div>`;
+  if(d.narrative)h+=`<h4>Why it exists</h4><div class="narr">${esc(d.narrative)}</div>`;
+  h+=`<h4>${fileOnly?"Recent history of this file":"The story of this line"}</h4>`;
+  if(!ev.commits.length)h+=`<div class="empty">No history yet. Is the line committed?</div>`;
+  ev.commits.forEach((c,i)=>{
+    h+=`<div class="card"><span class="tag">C${i+1}</span><span class="sha">${esc(c.short)} · ${esc(c.author)} · ${esc(c.date.slice(0,10))}</span><h3>${esc(c.subject)}</h3>`;
+    if(c.body)h+=`<div class="body">${esc(c.body)}</div>`;
+    if(c.pr){const pr=c.pr;h+=`<div style="margin-top:8px"><span class="tag">PR #${pr.number}</span>${pr.url?`<a href="${esc(pr.url)}" target="_blank" rel="noopener">${esc(pr.title||"open")}</a>`:esc(pr.title||"")}</div>`;
+      if(pr.body)h+=`<div class="body">${esc(pr.body)}</div>`;
+      (pr.issues||[]).forEach(x=>h+=`<div class="src"><span class="tag">issue #${x.number}</span>${esc(x.title)}</div>`);
+      (pr.discussion||[]).slice(0,4).forEach(m=>h+=`<div class="quote"><b>${esc(m.author)}</b>: ${esc(m.text.slice(0,280))}</div>`);
+      (pr.chat||[]).slice(0,3).forEach(m=>h+=`<div class="quote">🗨 <b>${esc(m.author)}</b> in ${esc(m.channel)}: ${esc(m.text.slice(0,280))}</div>`);}
+    (c.chat||[]).slice(0,3).forEach(m=>h+=`<div class="quote">🗨 <b>${esc(m.author)}</b> in ${esc(m.channel)}: ${esc(m.text.slice(0,280))}</div>`);
+    h+=`</div>`});
+  if(f.created){h+=`<h4>File</h4><div class="src">${f.commits} commits · created ${esc(f.created.date.slice(0,10))} by ${esc(f.created.author)}</div>`;
+    h+=`<div class="src">Main authors: ${f.authors.map(a=>esc(a.name)+" ("+a.commits+")").join(", ")}</div>`;
+    if(f.cochanged.length)h+=`<div class="src">Often changes with: ${f.cochanged.map(r=>`<a href="#" data-open="${esc(r.path)}">${esc(r.path)}</a>`).join(", ")}</div>`;}
+  $("#why").innerHTML=h;
+}
+$("#why").onclick=e=>{const a=e.target.closest("[data-open]");if(a){e.preventDefault();openFile(a.dataset.open)}};
+$("#ask").onsubmit=async e=>{e.preventDefault();const q=$("#q").value.trim();if(!q)return;
+  $("#why").innerHTML='<div class="empty">Searching the history…</div>';
+  try{const r=await api("/api/ask?q="+encodeURIComponent(q));let h=`<h4>Question</h4><div>${esc(q)}</div>`;
+    if(r.answer)h+=`<h4>Answer</h4><div class="narr">${esc(r.answer)}</div>`;
+    h+=`<h4>Sources</h4>`+(r.sources.length?r.sources.map(s=>`<div class="card"><span class="tag">${esc(s.id)}</span>${esc(s.title)}<div class="body">${esc((s.snip||"").replace(/\s+/g," "))}</div></div>`).join(""):'<div class="empty">Nothing matched.</div>');
+    $("#why").innerHTML=h}catch(err){$("#why").innerHTML=`<div class="empty">${esc(err.message)}</div>`}};
+init().catch(e=>$("#meta").textContent=e.message);
+</script>
+</body>
+</html>
