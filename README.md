@@ -146,7 +146,7 @@ For Cursor, Windsurf or another MCP client, add a server with command `loreline`
  git history ──┐
  PRs/reviews ──┼──► index (.git/loreline/lore.db, SQLite + FTS5) ──► evidence pack ──► LLM (optional) ──► answer with citations
  issues ───────┤        ▲ updated by git hooks / watch                   ▲
- chat/notes ───┘        └──────────────────────────────────────────────────────────────────── blame + git log -L for the line you asked about
+ chat/notes ───┘        └──────────────────────────────────── blame + git log -L for the line you asked about
 ```
 
 1. **Index:** commits, touched files, PR numbers, PR discussions, linked issues and chat messages are stored in a local SQLite database with full-text search.
