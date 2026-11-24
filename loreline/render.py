@@ -43,6 +43,11 @@ def why(ev: dict, narrative: str | None, verbose: bool = False) -> str:
         out.append(bold(green("Why it exists")))
         out.append(_wrap(narrative, "  ", max_lines=40))
         out.append("")
+    if t.get("uncommitted"):
+        out.append(yellow("  This line isn't committed yet, so it has no history. Commit it, then ask again."))
+        if not ev["commits"]:
+            return "\n".join(out)
+        out.append("")
     if not ev["commits"]:
         out.append(yellow("  No history found (uncommitted line or file not tracked)."))
         return "\n".join(out)

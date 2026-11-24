@@ -122,12 +122,13 @@ class BlameLine:
     text: str
 
 
-def blame_line(root: str, path: str, line: int, rev: str = "HEAD") -> BlameLine:
+def blame_line(root: str, path: str, line: int, rev: str | None = "HEAD") -> BlameLine:
+    """Blame one line at `rev`; rev=None blames the working tree (uncommitted lines get a zero SHA)."""
     args = ["blame", "--porcelain", "-w", "-M", "-C", "-L", f"{line},{line}"]
     ignore = os.path.join(root, ".git-blame-ignore-revs")
     if os.path.exists(ignore):
         args += ["--ignore-revs-file", ignore]
-    args += [rev, "--", path]
+    args += ([rev] if rev else []) + ["--", path]
     out = git(args, cwd=root)
     lines = out.splitlines()
     if not lines:
@@ -171,8 +172,9 @@ def _shas(out: str) -> list[str]:
     return shas
 
 
-def file_history(root: str, path: str, limit: int = 50) -> list[str]:
-    out = git(["log", f"-n{limit}", "--follow", "--format=%H", "--", path], cwd=root, check=False)
+def file_history(root: str, path: str, limit: int | None = 50) -> list[str]:
+    args = ["log", "--follow", "--format=%H"] + ([f"-n{limit}"] if limit else [])
+    out = git(args + ["--", path], cwd=root, check=False)
     return [s for s in out.split() if s]
 
 
@@ -196,7 +198,10 @@ def _is_ancestor(root: str, a: str, b: str) -> bool:
 
 
 def creation_commit(root: str, path: str) -> str | None:
-    out = git(["log", "--diff-filter=A", "--format=%H", "--", path], cwd=root, check=False).split()
+    """The commit that first added this file, following renames back to the original name."""
+    out = git(["log", "--follow", "--diff-filter=A", "--format=%H", "--", path], cwd=root, check=False).split()
+    if not out:
+        out = git(["log", "--diff-filter=A", "--format=%H", "--", path], cwd=root, check=False).split()
     return out[-1] if out else None
 
 

@@ -76,7 +76,7 @@ def cmd_why(args) -> int:
         line = args.line
     ex = Explainer(repo)
     ev = ex.why(path, line, symbol, depth=args.depth)
-    narrative = None if args.no_llm else ex.narrate(ev, use_cache=not args.no_cache)
+    narrative = None if args.no_llm or not ev["commits"] else ex.narrate(ev, use_cache=not args.no_cache)
     if args.json:
         print(to_json({"evidence": ev, "narrative": narrative}))
     elif args.evidence:

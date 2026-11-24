@@ -4,6 +4,7 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import os
 import re
 
 from . import PROJECT_URL, gitutil
@@ -78,19 +79,32 @@ class Explainer:
     def why(self, path: str, line: int | None = None, symbol: str | None = None, depth: int = 5) -> dict:
         root = self.repo.root
         path = self.repo.rel(path)
+        if gitutil.head(root) is None:
+            raise gitutil.GitError("this repository has no commits yet, so there is no history to explain")
         if symbol and line is None:
             line = gitutil.find_function_line(root, path, symbol)
         target: dict = {"path": path, "line": line, "symbol": symbol, "text": ""}
         history: list[str] = []
         origin = None
         if line:
-            bl = gitutil.blame_line(root, path, line)
+            try:
+                bl = gitutil.blame_line(root, path, line)
+            except gitutil.GitError as exc:
+                # The line (or file) exists only in the working tree: blame that instead.
+                if not os.path.exists(os.path.join(root, path)):
+                    raise
+                try:
+                    bl = gitutil.blame_line(root, path, line, rev=None)
+                except gitutil.GitError:
+                    raise exc from None
             target["text"] = bl.text
+            if bl.sha.startswith("0000000"):
+                target["uncommitted"] = True
             if not bl.sha.startswith("0000000"):
                 origin = bl.sha
-            if symbol:
+            if symbol and not target.get("uncommitted"):
                 history = gitutil.function_history(root, path, symbol, depth)
-            if not history:
+            if not history and not target.get("uncommitted"):
                 history = gitutil.line_history(root, path, line, line, depth)
         else:
             history = gitutil.file_history(root, path, depth)
@@ -100,6 +114,9 @@ class Explainer:
                 shas.append(s)
         commits = [c for c in (self.commit_card(s) for s in shas[: depth + 1]) if c]
         file_commits = self.store.commits_for_path(path, 200)
+        followed = gitutil.file_history(root, path, 200)
+        if len(followed) > len(file_commits):  # renamed file: the index only knows its current name
+            file_commits = [r for r in (self.repo.ensure_commit(s) for s in followed) if r]
         created_sha = gitutil.creation_commit(root, path)
         created = (self.repo.ensure_commit(created_sha) if created_sha else None) or (file_commits[-1] if file_commits else None)
         return {
@@ -126,6 +143,8 @@ class Explainer:
         out.append(f"TARGET: {where}")
         if t.get("text"):
             out.append(f"CODE: {t['text'].strip()}")
+        if t.get("uncommitted"):
+            out.append("NOTE: this line is not committed yet, so no commit explains it.")
         seen_prs: set[int] = set()
         for i, c in enumerate(ev["commits"], 1):
             label = "introduced this line" if i == 1 and ev.get("origin") else "touched this code"
