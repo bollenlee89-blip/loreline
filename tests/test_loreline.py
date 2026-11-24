@@ -228,5 +228,47 @@ class TestMCPAndServer(RepoTestCase):
             httpd.shutdown()
 
 
+class TestEdgeCases(unittest.TestCase):
+    def setUp(self):
+        os.environ.update({"LORELINE_LLM_PROVIDER": "none", "XDG_CONFIG_HOME": tempfile.mkdtemp()})
+        self.root = tempfile.mkdtemp()
+        sh(self.root, "init", "-q", "-b", "main")
+
+    def tearDown(self):
+        shutil.rmtree(self.root, ignore_errors=True)
+
+    def test_empty_repo_gives_friendly_error(self):
+        write(self.root, "a.py", "x = 1\n")
+        repo = Repo(self.root, offline=True, quiet=True)
+        with self.assertRaisesRegex(gitutil.GitError, "no commits yet"):
+            Explainer(repo).why("a.py", 1)
+
+    def test_uncommitted_line(self):
+        write(self.root, "a.py", "x = 1\n")
+        sh(self.root, "add", ".")
+        sh(self.root, "commit", "-q", "-m", "Add a")
+        write(self.root, "a.py", "x = 1\ny = 2\n")
+        repo = Repo(self.root, offline=True, quiet=True)
+        repo.index()
+        ev = Explainer(repo).why("a.py", 2)
+        self.assertTrue(ev["target"]["uncommitted"])
+        self.assertEqual(ev["target"]["text"], "y = 2")
+        self.assertEqual(ev["commits"], [])
+
+    def test_renamed_file_history(self):
+        write(self.root, "old.py", "x = 1\n")
+        sh(self.root, "add", ".")
+        sh(self.root, "commit", "-q", "-m", "Create old")
+        write(self.root, "old.py", "x = 1\ny = 2\n")
+        sh(self.root, "commit", "-q", "-am", "Grow old")
+        sh(self.root, "mv", "old.py", "new.py")
+        sh(self.root, "commit", "-q", "-m", "Rename to new")
+        repo = Repo(self.root, offline=True, quiet=True)
+        repo.index()
+        f = Explainer(repo).why("new.py")["file"]
+        self.assertEqual(f["created"]["subject"], "Create old")
+        self.assertEqual(f["commits"], 3)
+
+
 if __name__ == "__main__":
     unittest.main()
