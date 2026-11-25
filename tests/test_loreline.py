@@ -11,7 +11,7 @@ from http.server import HTTPServer
 from loreline import cli, gitutil
 from loreline.chat import import_chat
 from loreline.explain import Explainer
-from loreline.github import GitHub, linked_issues
+from loreline.github import GitHub, is_bot, linked_issues
 from loreline.mcp import handle
 from loreline.repo import Repo, extract_pr
 from loreline.server import make_handler
@@ -292,6 +292,15 @@ class TestEdgeCases(unittest.TestCase):
             self.assertEqual(repo.store.get_meta("last_indexed_head"), gitutil.head(self.root))
         finally:
             httpd.shutdown()
+
+
+class BotFilterTest(unittest.TestCase):
+    def test_bots_are_detected(self):
+        self.assertTrue(is_bot({"login": "codecov-io", "type": "User"}))
+        self.assertTrue(is_bot({"login": "dependabot[bot]", "type": "Bot"}))
+        self.assertTrue(is_bot({"login": "some-app", "type": "Bot"}))
+        self.assertFalse(is_bot({"login": "nateprewitt", "type": "User"}))
+        self.assertFalse(is_bot(None))
 
 
 if __name__ == "__main__":
