@@ -9,6 +9,16 @@ import subprocess
 import urllib.error
 import urllib.request
 
+# CI and coverage bots that post comments as regular users (older ones) or as Bot accounts.
+KNOWN_BOTS = {"codecov-io", "codecov-commenter", "coveralls", "sonarcloud", "netlify", "vercel", "changeset-bot"}
+
+
+def is_bot(user: dict | None) -> bool:
+    user = user or {}
+    login = (user.get("login") or "").lower()
+    return user.get("type") == "Bot" or login.endswith("[bot]") or login in KNOWN_BOTS
+
+
 ISSUE_REF = re.compile(r"(?i)\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|refs?|see|related to)\s*:?\s+#(\d+)")
 
 
@@ -58,16 +68,20 @@ class GitHub:
             return None
         comments: list[dict] = []
         for c in (self._get(f"/issues/{number}/comments?per_page=100") or []):
+            if is_bot(c.get("user")):
+                continue
             comments.append({"id": f"gh-ic-{c['id']}", "author": (c.get("user") or {}).get("login", ""),
                              "date": c.get("created_at", ""), "text": c.get("body") or "", "url": c.get("html_url", "")})
         for c in (self._get(f"/pulls/{number}/comments?per_page=100") or []):
+            if is_bot(c.get("user")):
+                continue
             text = c.get("body") or ""
             if c.get("path"):
                 text = f"[{c['path']}] {text}"
             comments.append({"id": f"gh-rc-{c['id']}", "author": (c.get("user") or {}).get("login", ""),
                              "date": c.get("created_at", ""), "text": text, "url": c.get("html_url", "")})
         for r in (self._get(f"/pulls/{number}/reviews?per_page=100") or []):
-            if r.get("body"):
+            if r.get("body") and not is_bot(r.get("user")):
                 comments.append({"id": f"gh-rv-{r['id']}", "author": (r.get("user") or {}).get("login", ""),
                                  "date": r.get("submitted_at", ""), "text": f"({r.get('state', '').lower()}) {r['body']}",
                                  "url": r.get("html_url", "")})
