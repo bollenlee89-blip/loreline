@@ -27,26 +27,48 @@ Point it at any line, and it tells you the decision, the pull request, the discu
 
 Every codebase is full of lines that look wrong but are there for a reason: a `sleep(0.3)`, a retry count of 3, a weird special case for one customer. The reason lives in a PR description from 2021, a review comment, a Slack thread, or someone's head. When nobody can find it, people either leave the code alone forever or "clean it up" and reintroduce the bug.
 
-`loreline` connects every line of code to the story behind it:
+`loreline` connects every line of code to the story behind it.
+
+### A real example
+
+Here is a line from [psf/requests](https://github.com/psf/requests), one of the most downloaded Python packages. It's a "special case" in the code that decides whether your password survives a redirect. Any reader might wonder whether it's safe to remove.
+
+`git blame` tells you who and when:
 
 ```console
-$ loreline why app/upload.py:42
-
-⟡ app/upload.py:42
-  │     for attempt in range(3):  # S3 drops ~1% of PUTs
-
-Why it exists
-  Uploads are retried three times because S3 intermittently returned 503s under load
-  [C1]. The fix came from issue #7 ("Uploads fail randomly") and was merged in [PR#42],
-  where a reviewer noted 3 matches the AWS SDK default.
-  Decision: retry failed uploads up to 3 times instead of failing the request.
-
-[C1] introduced by 9f2c1e7a Retry uploads three times
-     Ada Lovelace · 2024-03-02
-     PR #42 Retry flaky uploads  https://github.com/acme/app/pull/42
-       issue #7 Uploads fail randomly
-       💬 cy: 3 matches the SDK default, approving
+$ git blame -L 160,160 src/requests/sessions.py
+857e9b7ac requests/sessions.py (Bruce Merry 2018-08-14 13:30:43 +0200 160)         # Special case: allow http -> https redirect when using the standard
 ```
+
+`loreline` tells you why:
+
+```console
+$ loreline why src/requests/sessions.py:160 --no-llm
+
+⟡ src/requests/sessions.py:160
+  │         # Special case: allow http -> https redirect when using the standard
+
+[C1] introduced by 857e9b7a Rework authorization stripping logic as discussed
+     Bruce Merry · 2018-08-14
+     The exception for http->https upgrade now requires the standard HTTP(S)
+     ports to be used, either implicitly (no port specified) or explicitly.
+     PR #4718 Strip Authorization header whenever root URL changes  https://github.com/psf/requests/pull/4718
+       Previously the header was stripped only if the hostname changed, but in
+       an https -> http redirect that can leak the credentials on the wire
+       (#4716). Based on with RFC 7235 section 2.2, the header is now stripped
+       if the "canonical root URL" (scheme+authority) has changed.
+       Closes #4716.
+       issue #4716 Should Authorization header be cleared in https -> http redirect?
+       💬 nateprewitt: [requests/sessions.py] We may want to do the explicit check on scheme, hostname, and port here. Otherwise a ur
+       💬 nateprewitt: [tests/test_requests.py] We should be explicit here and validate that `Authorization` is not in the request he
+
+file: 200 commits · created 2011-08-15 by Tom Hogans · Ian Cordasco (29), Nate Prewitt (22), Cory Benfield (21), Kenneth Reitz (14)
+often changes with: src/requests/models.py, src/requests/utils.py, src/requests/help.py, src/requests/auth.py, src/requests/adapters.py
+```
+
+That is the whole story in one screen. The line comes from a security fix: requests used to keep your `Authorization` header when an HTTPS site redirected to plain HTTP on the same host, which sent the credentials over the wire unencrypted ([#4716](https://github.com/psf/requests/issues/4716)). The fix in [PR #4718](https://github.com/psf/requests/pull/4718), later assigned CVE-2018-18074, strips the header whenever the origin changes. The http → https upgrade on standard ports is the one exception that maintainers kept on purpose, so existing users wouldn't break. Remove it and you break those users. Loosen it and you can reopen the leak.
+
+This is real output from requests at commit `3c7baaa`, with PR details pulled from GitHub. Only the closing setup tip is left out. To reproduce it, clone requests, set `GITHUB_TOKEN`, then run `loreline init` and the command above. With an LLM connected, `loreline` also writes a short cited "Why it exists" summary above the evidence.
 
 ## Features
 

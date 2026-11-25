@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- PR discussions skip comments from CI and coverage bots (Codecov, Coveralls, `[bot]` accounts), so the human review comments show first
+- README: a real example from psf/requests instead of a made-up one
+
 ## 0.1.0
 
 First public release.
