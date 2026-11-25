@@ -52,6 +52,8 @@ def make_handler(repo):
             q = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
             try:
                 with lock:
+                    if url.path.startswith("/api/") and repo.refresh():
+                        tracked["files"] = None  # HEAD moved: new or deleted files
                     return self.route(url.path, q)
             except gitutil.GitError as exc:
                 return self._json({"error": str(exc)}, 400)

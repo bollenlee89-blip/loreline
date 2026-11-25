@@ -26,12 +26,14 @@ TOOLS = [
             },
             "required": ["path"],
         },
+        "annotations": {"title": "Why does this code exist?", "readOnlyHint": True, "openWorldHint": False},
     },
     {
         "name": "loreline_ask",
         "description": "Search the repository's history (commits, PRs, issues, discussions, chat) and answer a "
                        "question such as 'why did we switch from X to Y?' with cited sources.",
         "inputSchema": {"type": "object", "properties": {"question": {"type": "string"}}, "required": ["question"]},
+        "annotations": {"title": "Ask the repository's history", "readOnlyHint": True, "openWorldHint": False},
     },
 ]
 
@@ -60,6 +62,7 @@ def handle(repo, explainer: Explainer, msg: dict):
         params = msg.get("params") or {}
         name, args = params.get("name"), params.get("arguments") or {}
         try:
+            repo.refresh()  # pick up commits made since the server started
             if name == "loreline_why":
                 ev = explainer.why(args["path"], args.get("line"), args.get("symbol"))
                 narrative = explainer.narrate(ev)
@@ -87,8 +90,9 @@ def run(repo) -> None:  # pragma: no cover - stdio loop
         try:
             msg = json.loads(line)
         except ValueError:
-            continue
-        resp = handle(repo, explainer, msg)
+            resp = _error(None, -32700, "parse error: expected one JSON-RPC message per line")
+        else:
+            resp = handle(repo, explainer, msg) if isinstance(msg, dict) else _error(None, -32600, "invalid request")
         if resp is not None:
             sys.stdout.write(json.dumps(resp) + "\n")
             sys.stdout.flush()

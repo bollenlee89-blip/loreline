@@ -35,11 +35,7 @@ def _repo(args) -> Repo:
 
 def _fresh(repo: Repo) -> None:
     """Cheap incremental index so answers always reflect HEAD."""
-    if repo.store.get_meta("last_indexed_head") != gitutil.head(repo.root):
-        was = repo.quiet
-        repo.quiet = True
-        repo.index(fetch_prs=False)
-        repo.quiet = was
+    repo.refresh()
 
 
 def cmd_init(args) -> int:

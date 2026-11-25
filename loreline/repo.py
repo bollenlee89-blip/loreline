@@ -158,6 +158,18 @@ class Repo:
                 return nums[0]
         return None
 
+    def refresh(self) -> bool:
+        """Cheap incremental index when HEAD has moved, so long-running servers never answer from stale history."""
+        if self.store.get_meta("last_indexed_head") == gitutil.head(self.root):
+            return False
+        was = self.quiet
+        self.quiet = True
+        try:
+            self.index(fetch_prs=False)
+        finally:
+            self.quiet = was
+        return True
+
     def ensure_commit(self, sha: str):
         row = self.store.commit_row(sha)
         if row:
