@@ -204,6 +204,7 @@ class TestMCPAndServer(RepoTestCase):
         self.assertEqual(init["result"]["serverInfo"]["name"], "loreline")
         tools = handle(self.repo, ex, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
         self.assertEqual(len(tools["result"]["tools"]), 2)
+        self.assertTrue(all(t["annotations"]["readOnlyHint"] for t in tools["result"]["tools"]))
         res = handle(self.repo, ex, {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
                                      "params": {"name": "loreline_why", "arguments": {"path": "app/upload.py", "line": 2}}})
         self.assertIn("Retry uploads three times", res["result"]["content"][0]["text"])
@@ -268,6 +269,29 @@ class TestEdgeCases(unittest.TestCase):
         f = Explainer(repo).why("new.py")["file"]
         self.assertEqual(f["created"]["subject"], "Create old")
         self.assertEqual(f["commits"], 3)
+
+    def test_long_running_servers_see_new_commits(self):
+        write(self.root, "a.py", "x = 1\n")
+        sh(self.root, "add", ".")
+        sh(self.root, "commit", "-q", "-m", "Add a")
+        repo = Repo(self.root, offline=True, quiet=True)
+        repo.index()
+        ex = Explainer(repo)
+        httpd = HTTPServer(("127.0.0.1", 0), make_handler(repo))
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{httpd.server_port}"
+        try:
+            self.assertNotIn("b.py", json.load(urllib.request.urlopen(base + "/api/files")))
+            write(self.root, "b.py", "y = 2\n")
+            sh(self.root, "add", ".")
+            sh(self.root, "commit", "-q", "-m", "Add b for the billing fix")
+            self.assertIn("b.py", json.load(urllib.request.urlopen(base + "/api/files")))
+            res = handle(repo, ex, {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                                    "params": {"name": "loreline_why", "arguments": {"path": "b.py"}}})
+            self.assertIn("billing fix", res["result"]["content"][0]["text"])
+            self.assertEqual(repo.store.get_meta("last_indexed_head"), gitutil.head(self.root))
+        finally:
+            httpd.shutdown()
 
 
 if __name__ == "__main__":
